@@ -136,8 +136,31 @@ class SqlHelper(ISqlHelper):
     def close(self):
         pass
 
+"""------------------------------------------------------------------------------"""
+# import asyncio
+# from concurrent.futures import ThreadPoolExecutor
+#
+# async def test03():
+#     sqlhelper = SqlHelper()
+#     sqlhelper.init_db()
+#     proxy = {'ip': '192.168.1.1', 'port': 80, 'type': 0, 'protocol': 0, 'country': '中国', 'area': '广州', 'speed': 11.123,
+#              'types': ''}
+#
+#     loop = asyncio.get_event_loop()
+#     future = await loop.run_in_executor(None, sqlhelper.select, 1)
+#     print(future)
+#
+#
+#
+# def test():
+#     loop = asyncio.get_event_loop()
+#     loop.run_until_complete(test03())
+
 
 if __name__ == '__main__':
+    # test()
+    # exit()
+
     sqlhelper = SqlHelper()
     sqlhelper.init_db()
     proxy = {'ip': '192.168.1.1', 'port': 80, 'type': 0, 'protocol': 0, 'country': '中国', 'area': '广州', 'speed': 11.123, 'types': ''}
