@@ -1,5 +1,7 @@
 # coding:utf-8
 import sys
+import asyncio
+
 from config import DB_CONFIG
 from util.exception import Con_DB_Fail
 
@@ -17,7 +19,7 @@ except Exception as e:
     raise Con_DB_Fail
 
 
-def store_data(queue2, db_proxy_num):
+async def store_data(queue2, db_proxy_num,executor=None):
     '''
     读取队列中的数据，写入数据库中
     :param queue2:
@@ -25,12 +27,12 @@ def store_data(queue2, db_proxy_num):
     '''
     successNum = 0
     failNum = 0
+    loop = asyncio.get_event_loop()
     while True:
         try:
-            proxy = queue2.get(timeout=300)
+            proxy = await queue2.get()
             if proxy:
-
-                sqlhelper.insert(proxy)
+                await loop.run_in_executor(executor,sqlhelper.insert,proxy)
                 successNum += 1
             else:
                 failNum += 1
@@ -38,9 +40,9 @@ def store_data(queue2, db_proxy_num):
             sys.stdout.write(str + "\r")
             sys.stdout.flush()
         except BaseException as e:
-            if db_proxy_num.value != 0:
-                successNum += db_proxy_num.value
-                db_proxy_num.value = 0
+            if db_proxy_num["value"] != 0:
+                successNum += db_proxy_num["value"]
+                db_proxy_num["value"] = 0
                 str = 'IPProxyPool----->>>>>>>>Success ip num :%d,Fail ip num:%d' % (successNum, failNum)
                 sys.stdout.write(str + "\r")
                 sys.stdout.flush()

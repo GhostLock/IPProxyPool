@@ -154,8 +154,9 @@ class SqlHelper(ISqlHelper):
 #
 # def test():
 #     loop = asyncio.get_event_loop()
-#     loop.run_until_complete(test03())
-
+#     asyncio.gather(test03(),test03(),test03())
+#     # loop.run_until_complete(test03())
+#     loop.run_forever()
 
 if __name__ == '__main__':
     # test()
