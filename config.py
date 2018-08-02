@@ -208,8 +208,15 @@ CHECK_PROXY = {'function': 'checkProxy'}  # {'function':'baidu_check'}
 # 下面配置squid,现在还没实现
 # SQUID={'path':None,'confpath':'C:/squid/etc/squid.conf'}
 
-MAX_CHECK_PROCESS = 2  # CHECK_PROXY最大进程数
-MAX_CHECK_CONCURRENT_PER_PROCESS = 30  # CHECK_PROXY时每个进程的最大并发
+MAX_CHECK_CONCURRENT = 50  # CHECK_PROXY最大并发
+# MAX_CHECK_CONCURRENT_PER_PROCESS = 30  # CHECK_PROXY时每个进程的最大并发
 TASK_QUEUE_SIZE = 50  # 任务队列SIZE
-MAX_DOWNLOAD_CONCURRENT = 3  # 从免费代理网站下载时的最大并发
-CHECK_WATI_TIME = 1  # 进程数达到上限时的等待时间
+MAX_DOWNLOAD_CONCURRENT = 3  # 从免费代理网站下载时的最大并发（每一个网站）
+# CHECK_WATI_TIME = 1  # 进程数达到上限时的等待时间
+
+"""
+服务器配置
+"""
+HOST = 'localhost'
+PORT = 8000
+SERVER_EXECUTOR_NUM = 1 #服务器ThreadPoolExecutor的数量

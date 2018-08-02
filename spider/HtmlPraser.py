@@ -73,7 +73,7 @@ class Html_Parser(object):
 
             # proxy ={'ip':ip,'port':int(port),'type':int(type),'protocol':int(protocol),'country':country,'area':area,'updatetime':updatetime,'speed':100}
             proxy = {'ip': ip, 'port': int(port), 'types': int(type), 'protocol': int(protocol), 'country': country,
-                     'area': area, 'speed': 100}
+                     'area': area, 'speed': 100}    #todo 这种形式是否会造成dict非空，但value值为空？
             proxylist.append(proxy)
         return proxylist
 

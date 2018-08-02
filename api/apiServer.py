@@ -1,28 +1,71 @@
+import asyncio
+import sys
 from aiohttp import web
-from aiohttp.web import Request
+from concurrent.futures import ThreadPoolExecutor
+
+import config
+from db.DataStore import sqlhelper
+
 
 def start_api_server():
+    app = init_app()
+    windows_support(app)
+    init_executor(app)
+    web.run_app(app, host=config.HOST, port=config.PORT)
+
+
+def init_app():
     app = web.Application()
+    setup_routes(app)
+    # app.on_startup.append(windows_support)
+    # app.on_startup.append(init_executor)      #todo 使用多进程运行时signal为什么会报错?
+    # app.on_cleanup.append(clean_executor)
+    return app
+
+
+def windows_support(app):
+    if sys.platform == 'win32':
+        loop = asyncio.ProactorEventLoop()
+        asyncio.set_event_loop(loop)
+        app._set_loop(loop)      #todo 这行代码是否有必要存在?
+
+
+def init_executor(app):
+    executor = ThreadPoolExecutor(max_workers=config.SERVER_EXECUTOR_NUM)
+    app['executor'] = executor
+
+
+def clean_executor(app):
+    app['executor'].shutdown(wait=True)
+
+
+def setup_routes(app):
     app.add_routes([
-        web.get('/', get)
+        web.get('/', select),
+        web.get('/delete', delete),
     ])
-    web.run_app(app, port=8000)
 
 
-def step_routes(app):
-    app.router.add_get("/", get)
+async def select(request):
+    params = request.query
+    app = request.app
+    loop = app.loop
+    data = await loop.run_in_executor(app['executor'], sqlhelper.select, params.get('count', None), params)
+    return web.json_response(data=data)
 
 
-async def get(request):
-    data = {'data':request.url.path}
+async def delete(request):
+    params = request.query
+    app = request.app
+    loop = app.loop
+    data = await loop.run_in_executor(app['executor'], sqlhelper.delete, params)
+    return web.json_response(data=data)
 
-    return web.json_response(data,headers=None)
-
-
-urls = (
-    '/', 'select',
-    '/delete', 'delete'
-)
+def test():
+    print("test")
 
 if __name__ == '__main__':
-    start_api_server()
+    from concurrent.futures import ProcessPoolExecutor
+    with ProcessPoolExecutor() as process:
+        process.submit(start_api_server)
+

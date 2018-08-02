@@ -2,16 +2,11 @@ import asyncio
 import sys
 from asyncio import Queue
 
-from config import THREADNUM, parserList, UPDATE_TIME, MINNUM, MAX_CHECK_CONCURRENT_PER_PROCESS, MAX_DOWNLOAD_CONCURRENT
+from config import THREADNUM, parserList, UPDATE_TIME, MINNUM, MAX_DOWNLOAD_CONCURRENT
 from db.DataStore import store_data, sqlhelper
 from spider.HtmlDownloader import Html_Downloader
 from spider.HtmlPraser import Html_Parser
 from validator.Validator import check_proxy_effectivity
-
-'''
-这个类的作用是描述爬虫的逻辑
-'''
-loop = asyncio.get_event_loop()
 
 
 async def startProxyCrawl(queue, db_proxy_num, myip):
@@ -29,6 +24,7 @@ class ProxyCrawl:
         self.executor = executor
 
     async def run(self):
+        loop = asyncio.get_event_loop()
         while True:
             self.proxies.clear()
             str = 'IPProxyPool----->>>>>>>>beginning'
@@ -36,7 +32,8 @@ class ProxyCrawl:
             sys.stdout.flush()
             proxylist = await loop.run_in_executor(self.executor, sqlhelper.select)  # 从数据库取出所有数据
             if proxylist:
-                future_list = [asyncio.ensure_future(check_proxy_effectivity(self.myip, proxy, self.proxies)) for proxy in proxylist]
+                future_list = [asyncio.ensure_future(check_proxy_effectivity(self.myip, proxy, self.proxies)) for proxy
+                               in proxylist]
                 await asyncio.wait(future_list)  # 在线检测所有ip有效性
             proxy_total = len(self.proxies)
             self.db_proxy_num["value"] = proxy_total
@@ -47,8 +44,10 @@ class ProxyCrawl:
                 sys.stdout.write(str + "\r\n")
                 sys.stdout.flush()
                 # 开始爬取
-                for p in parserList:
-                    asyncio.ensure_future(self.crawl(p))
+                for parser in parserList:
+                    # 针对parserList中的每一条单独设置并发数
+                    semphore = asyncio.Semaphore(value=MAX_DOWNLOAD_CONCURRENT)
+                    asyncio.ensure_future(self.crawl(parser, semphore))
             else:
                 str += '\r\nIPProxyPool----->>>>>>>>now ip num meet the requirement,wait UPDATE_TIME...'
                 sys.stdout.write(str + "\r\n")
@@ -56,26 +55,22 @@ class ProxyCrawl:
 
             await asyncio.sleep(UPDATE_TIME)
 
-    async def crawl(self, parser):
+    async def crawl(self, parser, semphore):
         html_parser = Html_Parser()
-        for url in parser['urls']:
-            response = await Html_Downloader.download(url)  #todo 这里没有并发，是否需要改？
-            if response is not None:
-                proxylist = html_parser.parse(response, parser)
-                if proxylist is not None:
-                    for proxy in proxylist:
-                        proxy_str = '%s:%s' % (proxy['ip'], proxy['port'])
-                        if proxy_str not in self.proxies:
-                            self.proxies.add(proxy_str)
-                            while True:
-                                if self.queue.full():  # TODO 这个队列是否需要
-                                    await asyncio.sleep(0.1)
-                                else:
-                                    await self.queue.put(proxy)
-                                    # print(proxy)    #todo testing...
-                                    break
+        todo_list = [Html_Downloader.download(url, semphore) for url in parser['urls']]
+        for future in asyncio.as_completed(todo_list):
+            response = await future
+            if not response:
+                continue
+            proxylist = html_parser.parse(response, parser)
+            if not proxylist:
+                continue
+            for proxy in proxylist:
+                proxy_str = '%s:%s' % (proxy['ip'], proxy['port'])
+                if proxy_str not in self.proxies:
+                    self.proxies.add(proxy_str)
+                    await self.queue.put(proxy)
 
 
 if __name__ == '__main__':
-
     pass
