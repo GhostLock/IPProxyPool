@@ -3,8 +3,9 @@ import datetime
 from sqlalchemy import Column, Integer, String, DateTime, Numeric, create_engine, VARCHAR
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from config import DB_CONFIG, DEFAULT_SCORE
+from collections import OrderedDict
 
+from config import DB_CONFIG, DEFAULT_SCORE
 from db.ISqlHelper import ISqlHelper
 
 '''
@@ -49,14 +50,12 @@ class SqlHelper(ISqlHelper):
     def drop_db(self):
         BaseModel.metadata.drop_all(self.engine)
 
-
     def insert(self, value):
         proxy = Proxy(ip=value['ip'], port=value['port'], types=value['types'], protocol=value['protocol'],
                       country=value['country'],
                       area=value['area'], speed=value['speed'])
         self.session.add(proxy)
         self.session.commit()
-
 
     def delete(self, conditions=None):
         if conditions:
@@ -73,7 +72,6 @@ class SqlHelper(ISqlHelper):
         else:
             deleteNum = 0
         return ('deleteNum', deleteNum)
-
 
     def update(self, conditions=None, value=None):
         '''
@@ -101,13 +99,9 @@ class SqlHelper(ISqlHelper):
             updateNum = 0
         return {'updateNum': updateNum}
 
-
-    def select(self, count=None, conditions=None):
+    def select(self, count=None, conditions=None, exclude_ip=None):
         '''
-        conditions的格式是个字典。类似self.params
-        :param count:
-        :param conditions:
-        :return:
+        conditions 的格式是个字典。类似self.params
         '''
         if conditions:
             conditon_list = []
@@ -117,55 +111,56 @@ class SqlHelper(ISqlHelper):
             conditions = conditon_list
         else:
             conditions = []
+        query = self.session.query(Proxy.ip, Proxy.port, Proxy.score, Proxy.types, Proxy.protocol)
 
-        query = self.session.query(Proxy.ip, Proxy.port, Proxy.score)
-        if len(conditions) > 0 and count:
-            for condition in conditions:
-                query = query.filter(condition)
-            return query.order_by(Proxy.score.desc(), Proxy.speed).limit(count).all()
-        elif count:
-            return query.order_by(Proxy.score.desc(), Proxy.speed).limit(count).all()
-        elif len(conditions) > 0:
-            for condition in conditions:
-                query = query.filter(condition)
-            return query.order_by(Proxy.score.desc(), Proxy.speed).all()
-        else:
-            return query.order_by(Proxy.score.desc(), Proxy.speed).all()
+        def condition(query):
+            for cond in conditions:
+                query = query.filter(cond)
+            return query
 
+        def order_by(query):
+            return query.order_by(Proxy.score.desc(), Proxy.speed)
+
+        def limit(query):
+            return query.limit(count)
+
+        def exclude(query):
+            return query.filter(Proxy.ip.notin_(exclude_ip))
+
+        query_map = OrderedDict({
+            'condition': condition,
+            'exclude': exclude,
+            'order_by': order_by,
+            'limit': limit,
+        })
+        query_keys = []
+        if len(conditions) > 0:
+            query_keys.append('condition')
+        if count:
+            query_keys.append('limit')
+        if exclude_ip:
+            query_keys.append('exclude')
+        query_keys.append('order_by')
+        for key, query_func in query_map.items():
+            if key in query_keys:
+                query = query_func(query)
+        return query.all()
 
     def close(self):
         pass
 
-"""------------------------------------------------------------------------------"""
-# import asyncio
-# from concurrent.futures import ThreadPoolExecutor
-#
-# async def test03():
-#     sqlhelper = SqlHelper()
-#     sqlhelper.init_db()
-#     proxy = {'ip': '192.168.1.1', 'port': 80, 'type': 0, 'protocol': 0, 'country': '中国', 'area': '广州', 'speed': 11.123,
-#              'types': ''}
-#
-#     loop = asyncio.get_event_loop()
-#     future = await loop.run_in_executor(None, sqlhelper.select, 1)
-#     print(future)
-#
-#
-#
-# def test():
-#     loop = asyncio.get_event_loop()
-#     asyncio.gather(test03(),test03(),test03())
-#     # loop.run_until_complete(test03())
-#     loop.run_forever()
+
+
 
 if __name__ == '__main__':
-    # test()
-    # exit()
-
     sqlhelper = SqlHelper()
-    sqlhelper.init_db()
-    proxy = {'ip': '192.168.1.1', 'port': 80, 'type': 0, 'protocol': 0, 'country': '中国', 'area': '广州', 'speed': 11.123, 'types': ''}
-    sqlhelper.insert(proxy)
-    sqlhelper.update({'ip': '192.168.1.1', 'port': 80}, {'score': 10})
-    print(sqlhelper.select(1))
-
+    # sqlhelper.init_db()
+    # proxy = {'ip': '192.168.1.1', 'port': 80, 'type': 0, 'protocol': 0, 'country': '中国', 'area': '广州', 'speed': 11.123, 'types': ''}
+    # sqlhelper.insert(proxy)
+    # sqlhelper.update({'ip': '192.168.1.1', 'port': 80}, {'score': 10})
+    res = sqlhelper.select(1, {
+        'types': 0,
+        'protocol': 0
+    },['101.96.11.5','101.96.10.5'])
+    print(res)
+    print(len(res))

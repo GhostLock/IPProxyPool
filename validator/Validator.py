@@ -10,8 +10,8 @@ import config
 from db.DataStore import sqlhelper
 from util.exception import Test_URL_Fail
 
-
 semphore = asyncio.Semaphore(value=config.MAX_CHECK_CONCURRENT)
+
 
 async def validator(queue1, queue2, myip):
     """
@@ -25,23 +25,28 @@ async def validator(queue1, queue2, myip):
         asyncio.ensure_future(detect_proxy(myip, proxy, queue2))
 
 
-
 async def check_proxy_effectivity(myip, proxy, proxies_set, executor=None):
     """
     从数据库读取ip dict ,并在线检测。
     :param myip:
-    :param proxy:
+    :param proxy: 如('101.96.11.5', 80, 10)
     :param proxies_set:
     :return:
     """
     loop = asyncio.get_event_loop()
     proxy_dict = {'ip': proxy[0], 'port': proxy[1]}
+    # result如{'ip': '101.96.11.5', 'port': 80, 'protocol': 0, 'types': 0, 'speed': 0.26}
     result = await detect_proxy(myip, proxy_dict)
     if result:
         proxy_str = '%s:%s' % (proxy[0], proxy[1])
         proxies_set.add(proxy_str)
+        await loop.run_in_executor(executor, sqlhelper.update,
+                                   {'ip': result.get('ip'), 'port': result.get('port')},
+                                   {'protocol': result.get('protocol'),
+                                    'types': result.get('types'),
+                                    'speed': result.get('speed')})  # 检测时重新写入类型和速度
     else:
-        #采用计分制，每检测一次不通过就扣一分
+        # 采用计分制，每检测一次不通过就扣一分
         if proxy[2] < 1:  # 如果分数扣光就删掉
             await loop.run_in_executor(executor, sqlhelper.delete, {'ip': proxy[0], 'port': proxy[1]})
         else:
@@ -49,6 +54,35 @@ async def check_proxy_effectivity(myip, proxy, proxies_set, executor=None):
             await loop.run_in_executor(executor, sqlhelper.update, {'ip': proxy[0], 'port': proxy[1]}, {'score': score})
             proxy_str = '%s:%s' % (proxy[0], proxy[1])
             proxies_set.add(proxy_str)
+
+
+async def check_proxy_effectivity_server(myip, proxy, executor=None):
+    """
+    用于服务端的检测
+    """
+    loop = asyncio.get_event_loop()
+    proxy_dict = {'ip': proxy[0], 'port': proxy[1]}
+    type = proxy[3]
+    protocol = proxy[4]
+    result = await detect_proxy(myip, proxy_dict)
+    if result:
+        if result.get('types') == type and result.get('protocol') == protocol:  # 如果检测类型与数据库匹配
+            # return 'http://{ip}:{port}'.format(ip=proxy[0],port=proxy[1])
+            return result
+        else:
+            await loop.run_in_executor(executor, sqlhelper.update,
+                                       {'ip': result.get('ip'), 'port': result.get('port')},
+                                       {'protocol': result.get('protocol'),
+                                        'types': result.get('types'),
+                                        'speed': result.get('speed')})  # 检测时重新写入类型和速度
+    else:
+        # 采用计分制，每检测一次不通过就扣一分
+        if proxy[2] < 1:  # 如果分数扣光就删掉
+            await loop.run_in_executor(executor, sqlhelper.delete, {'ip': proxy[0], 'port': proxy[1]})
+        else:
+            score = proxy[2] - 1
+            await loop.run_in_executor(executor, sqlhelper.update, {'ip': proxy[0], 'port': proxy[1]}, {'score': score})
+    return None
 
 
 async def detect_proxy(selfip, proxy, queue2=None):
@@ -59,27 +93,27 @@ async def detect_proxy(selfip, proxy, queue2=None):
     '''
     ip = proxy['ip']
     port = proxy['port']
-    proxies = "http://%s:%s" % (ip, port)   #只有http proxy，哪怕支持https类型的proxy也写成http, https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/CONNECT
-    protocol, types, speed = await getattr(sys.modules[__name__], config.CHECK_PROXY['function'])(selfip,proxies)  # checkProxy(selfip, proxies)
+    proxies = "http://%s:%s" % (ip,
+                                port)  # 只有http proxy，哪怕支持https类型的proxy也写成http, https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/CONNECT
+    protocol, proxy_type, speed = await getattr(sys.modules[__name__], config.CHECK_PROXY['function'])(selfip,
+                                                                                                       proxies)  # checkProxy(selfip, proxies)
     if protocol >= 0:  # 如果是有效的ip
-        proxy['protocol'] = protocol  # http/https的协议类型 #TODO 这个参数是否有用，有待考证！！
-        proxy['types'] = types
+        proxy['protocol'] = protocol  # http/https的协议类型
+        proxy['types'] = proxy_type
         proxy['speed'] = speed
     else:
         proxy = None
     if queue2:
-        await queue2.put(proxy) #None值会被用于标记Fail ip数
+        await queue2.put(proxy)  # None值会被用于标记Fail ip数
         # print(proxy)
     return proxy
 
 
 async def checkProxy(selfip, proxies):
     '''
-    用来检测代理的类型，突然发现，免费网站写的信息不靠谱，还是要自己检测代理的类型
+    检测代理的类型(使用代理访问http和https)
+
     '''
-    protocol = -1
-    types = -1
-    speed = -1
     http, http_types, http_speed = await _checkHttpProxy(selfip, proxies)
     https, https_types, https_speed = await _checkHttpProxy(selfip, proxies, False)
     if http and https:
@@ -87,27 +121,27 @@ async def checkProxy(selfip, proxies):
         types = http_types
         speed = http_speed
     elif http:
-        types = http_types
         protocol = 0
+        types = http_types
         speed = http_speed
     elif https:
-        types = https_types
         protocol = 1
+        types = https_types
         speed = https_speed
     else:
-        types = -1
         protocol = -1
+        types = -1
         speed = -1
     return protocol, types, speed
 
 
 async def _checkHttpProxy(selfip, proxies, isHttp=True):
     """
-    检测当前ip
+    检测当前ip代理的http类型（http/https），代理类型（透明，匿名，高匿名），响应时间。
     :param selfip:  本机IP
     :param proxies: 代理ip
-    :param isHttp:  是否是http
-    :return:    是否可用，类型，速度
+    :param isHttp:  是否是http类型
+    :return:    是否可用，代理类型，速度
     """
     types = -1
     speed = -1
@@ -155,9 +189,11 @@ async def getMyIP():
 
 
 if __name__ == '__main__':
-    # loop = asyncio.get_event_loop()
-    # res = loop.run_until_complete(getMyIP())
-    # loop.close()
-    # print(res)
+    loop = asyncio.get_event_loop()
+    proxy_dict = {'ip': '1.179.183.89', 'port': '8080'}
+    res = loop.run_until_complete(detect_proxy('121.0.29.202', proxy_dict))
+    # res = loop.run_until_complete(_checkHttpProxy('121.0.29.202','http://203.130.46.108:9090'))
+    loop.close()
+    print(res)
 
     pass

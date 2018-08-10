@@ -25,7 +25,8 @@ def spider_process():
     executor = ThreadPoolExecutor(max_workers=1)
     loop = asyncio.get_event_loop()
 
-    # if sys.platform == 'win32':  # 在windows平台上使用socket连接，默认限制连接数为512，注意：asyncio.ProactorEventLoop() 不支持https proxy
+    # 暂不使用，因为asyncio.ProactorEventLoop() 不支持proxy代理类型为https
+    # if sys.platform == 'win32':  # 在windows平台上使用socket连接，默认限制连接数为512，
     #     loop = asyncio.ProactorEventLoop()
     #     asyncio.set_event_loop(loop)
 
@@ -36,5 +37,8 @@ def spider_process():
 
 if __name__ == "__main__":
     with ProcessPoolExecutor() as executor:
-        executor.submit(spider_process)
-        executor.submit(start_api_server)
+        try:
+            executor.submit(spider_process)
+            executor.submit(start_api_server)
+        except KeyboardInterrupt:
+            pass
