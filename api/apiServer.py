@@ -60,8 +60,6 @@ def setup_routes(app):
         web.get('/', select),
         web.get('/delete', delete),
         web.get('/safemode', safemode),
-        web.get('/set_cookie',set_cookie),
-        web.get('/get_cookie',get_cookie),
     ])
 
 
@@ -139,20 +137,6 @@ async def safemode(request):
     return web.json_response(data=proxy_list)
 
 
-async def set_cookie(request):
-    session = await get_session(request)
-    session['session_id'] = str(uuid.uuid1())
-    return web.json_response(data=dict(session))
-
-async def get_cookie(request):
-    session = await get_session(request)
-    print(request.cookies)
-    # if not session.get('proxy_list'):
-    #     session['proxy_list'] = [1,2,3]
-    # proxy_list = session['proxy_list']
-    # print(proxy_list)
-
-    return web.json_response(data=dict(session))
 
 
 if __name__ == '__main__':

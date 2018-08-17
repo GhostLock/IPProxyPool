@@ -1,5 +1,6 @@
 import aiohttp
 import asyncio
+import re
 
 proxypool_url = 'http://localhost:8000/'  # 不能使用http://127.0.0.1:8000/否则无法获取cookie
 
@@ -41,27 +42,79 @@ async def get_proxy(session=None, safemode=True, **kwargs):
     proxy_urls = ['http://{}:{}'.format(proxy['ip'], proxy['port']) for proxy in proxy_list]
     return proxy_urls
 
+async def del_proxy(proxy_str):
+    """
+    删除代理
+    :param proxy_str: http://189.58.101.69:53281
+    """
+    reg = re.match('http://(.*?):(\d+)', proxy_str)
+    ip, port = reg.group(1), reg.group(2)
+    DEL_URL = proxypool_url + "delete?ip={}&port={}".format(ip, port)
+    async with aiohttp.ClientSession() as session:
+        async with session.get(DEL_URL) as response:
+            pass
+
 
 if __name__ == '__main__':
-    async def case02():
+    async def case01():
         timeout = aiohttp.ClientTimeout(total=30)
         session = aiohttp.ClientSession(timeout=timeout)
         params = {
             'session': session,
-            'count': 3,
+            'count': 1,
             'types': 0,
             'protocol': 0,
             'country': '国内',
-            'sleep': 30
+            'sleep': 10
         }
         res = asyncio.gather(get_proxy(**params), get_proxy(**params), get_proxy(**params))
         print(await res)
         await session.close()
 
+    async def case02():
+        import time
+        import re
+        from test.utils import dict_to_csv
+        from util.tqdm import tqdm
+        timeout = aiohttp.ClientTimeout(total=30)
+        session = aiohttp.ClientSession(timeout=timeout)
+        semphore = asyncio.Semaphore(value=10)
+        sleep = 10
+        total_task = 500
+        params = {
+            'session': session,
+            'count': 1,
+            'types': 0,
+            'protocol': 0,
+            'country': '国内',
+            'sleep': sleep
+        }
+        async def one_coro(semphore):
+            async with semphore:
+                res = await get_proxy(**params)
+                ip = re.match("http://(.*?):\d+",(res)[0]).group(1)
+                _time = time.time() * 1000
+                data = {
+                    '_':'',
+                    'ip':ip,
+                    'time':_time,
+                }
+                await asyncio.sleep(sleep)
+                return data
+        task_list = [one_coro(semphore) for i in range(total_task)]
+        for future in tqdm(asyncio.as_completed(task_list),total=total_task):
+            try:
+                res = await future
+                dict_to_csv("proxyinfo.csv", res)
+            except Exception as e:
+                print(e)
+        await session.close()
+
+
 
     async def main():
-        await case02()
-
+        await case01()
+        print("---- Task Done ----")
 
     loop = asyncio.get_event_loop()
     loop.run_until_complete(main())
